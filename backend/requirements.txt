@@ -1,0 +1,55 @@
+# FastAPI y servidor
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-socketio==5.10.0
+python-multipart==0.0.6
+
+# Base de datos
+motor==3.3.2
+pymongo==4.6.0
+
+# Seguridad y autenticación
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.1
+cryptography==41.0.7
+pycryptodome==3.19.0
+pyotp==2.9.0
+
+# WebSockets
+aiofiles==23.2.1
+websockets==12.0
+
+# Detección de esteganografía
+Pillow==10.1.0
+stegano>=0.11.3
+opencv-python==4.8.1.78
+numpy==1.26.2
+scipy==1.11.4
+python-magic==0.4.27
+
+# Validación y seguridad
+pydantic==2.5.0
+pydantic-settings==2.1.0
+email-validator==2.1.0
+python-dotenv==1.0.0
+pytz==2023.3
+
+# CORS (incluido en FastAPI)
+# No se requiere paquete adicional
+
+# Logging y monitoreo
+structlog==23.2.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2
+
+# Rate limiting
+slowapi==0.1.9
+
+# Redis para sesiones
+redis==5.0.1
+aioredis==2.0.1

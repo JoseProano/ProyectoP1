@@ -1,0 +1,92 @@
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7.0
+    container_name: securechat_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: securepassword123
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - securechat_network
+
+  # Redis
+  redis:
+    image: redis:7-alpine
+    container_name: securechat_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - securechat_network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: securechat_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://admin:securepassword123@mongodb:27017
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=your-super-secret-key-change-in-production-fixed-key-2025
+      - AES_KEY=aes-encryption-key-fixed-for-persistence-2025-secure
+      - ENCRYPTION_KEY=encryption-key-fixed-for-message-persistence-2025
+      - ENVIRONMENT=production
+      - DEBUG=False
+      - ENABLE_STEGO_DETECTION=True
+      - ENTROPY_THRESHOLD=7.9
+    volumes:
+      - ./backend/logs:/app/logs
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - securechat_network
+
+  # Frontend React
+  frontend:
+    build:
+      context: ./frontend-react
+      dockerfile: Dockerfile
+    container_name: securechat_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - securechat_network
+
+  # Load Testing (Locust)
+  loadtest:
+    build:
+      context: ./load_tests
+      dockerfile: Dockerfile
+    container_name: securechat_loadtest
+    restart: unless-stopped
+    ports:
+      - "8089:8089"
+    depends_on:
+      - backend
+    networks:
+      - securechat_network
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  securechat_network:
+    driver: bridge

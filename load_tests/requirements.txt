@@ -1,0 +1,6 @@
+# Dependencias para pruebas de carga
+locust==2.20.0
+python-socketio[client]==5.11.0
+websocket-client==1.7.0
+redis==5.0.1
+requests==2.31.0
