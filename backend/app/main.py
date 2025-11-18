@@ -249,13 +249,12 @@ async def get_room_messages(
     
     print(f"[DEBUG] Found {len(messages)} messages")
     
-    # Desencriptar mensajes
-    decrypted_messages = []
+    # 🔐 E2E: NO desencriptar mensajes en el servidor
+    # Enviar mensajes encriptados al cliente para que los desencripte
+    formatted_messages = []
     for msg in reversed(messages):  # Invertir para que estén en orden cronológico
         try:
-            decrypted_content = crypto_manager.decrypt_aes(msg["content"])
-            
-            # Usar nickname guardado en el mensaje, o buscar en room_users como fallback
+            # Usar nickname guardado en el mensaje
             user_nick = msg.get("nickname", "Usuario")
             
             # Si no hay nickname en el mensaje (mensajes antiguos), buscar en Redis
@@ -266,10 +265,13 @@ async def get_room_messages(
                         user_nick = user.get("nickname", "Usuario")
                         break
             
+            # E2E: Priorizar encrypted_content, usar content como fallback para mensajes antiguos
+            encrypted_data = msg.get("encrypted_content") or msg.get("content")
+            
             message_data = {
                 "id": str(msg["_id"]),
                 "nickname": user_nick,
-                "content": decrypted_content,
+                "encrypted_content": encrypted_data,
                 "timestamp": msg["timestamp"].astimezone(ECUADOR_TZ).isoformat()
             }
             
@@ -281,13 +283,13 @@ async def get_room_messages(
             if msg.get("file_url"):
                 message_data["file_url"] = msg["file_url"]
             
-            decrypted_messages.append(message_data)
+            formatted_messages.append(message_data)
         except Exception as e:
-            print(f"Error decrypting message: {e}")
+            print(f"Error processing message: {e}")
             continue
     
-    print(f"[DEBUG] Returning {len(decrypted_messages)} decrypted messages")
-    return {"messages": decrypted_messages}
+    print(f"[DEBUG] Returning {len(formatted_messages)} E2E encrypted messages (server cannot read)")
+    return {"messages": formatted_messages}
 
 
 @app.post("/api/rooms/{room_id}/upload")
@@ -640,19 +642,21 @@ async def send_message(sid, data):
             }, to=sid)
             return
         
-        # Encriptar mensaje
-        encrypted_content = crypto_manager.encrypt_aes(content)
+        # 🔐 END-TO-END ENCRYPTION:
+        # El mensaje ya viene encriptado del cliente (encrypted_content)
+        # El servidor NO debe desencriptar, solo almacenar y retransmitir
+        encrypted_content = data.get("encrypted_content", content)
         
-        # Guardar en DB
+        # Guardar en DB (encriptado por el cliente)
         messages_collection = db.get_collection("messages")
         message_doc = {
             "room_id": room_id,
             "user_id": session["user_id"],
-            "nickname": data.get("nickname", "Usuario"),  # Guardar nickname
-            "content": encrypted_content,
+            "nickname": data.get("nickname", "Usuario"),
+            "encrypted_content": encrypted_content,  # E2E encrypted
             "encrypted": True,
             "timestamp": get_ecuador_time(),
-            "signature": crypto_manager.sign_data(content)
+            "signature": crypto_manager.sign_data(encrypted_content)  # Firmar contenido encriptado
         }
         
         # Guardar información de archivo si está presente
@@ -665,14 +669,11 @@ async def send_message(sid, data):
         
         result = await messages_collection.insert_one(message_doc)
         
-        # Desencriptar para enviar (en producción, enviar encriptado)
-        decrypted_content = content  # Ya viene desencriptado del cliente
-        
-        # Preparar mensaje para broadcast
+        # Preparar mensaje para broadcast (enviar encriptado, NO desencriptar)
         broadcast_message = {
             "id": str(result.inserted_id),
             "nickname": data.get("nickname"),
-            "content": decrypted_content,
+            "encrypted_content": encrypted_content,  # Los clientes lo desencriptan
             "timestamp": message_doc["timestamp"].isoformat()
         }
         

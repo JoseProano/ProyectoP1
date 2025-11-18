@@ -183,11 +183,71 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+  .join-room-container {
+    padding: 10px;
+  }
+
   .join-room-card {
-    padding: 20px;
+    padding: 20px 15px;
+    max-width: 100%;
+  }
+
+  .join-room-card h1 {
+    font-size: 24px;
+  }
+
+  .subtitle {
+    font-size: 14px;
   }
   
   .room-item {
     padding: 12px;
+  }
+
+  .room-item-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .room-item-footer {
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .back-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .footer-info {
+    margin-top: 20px;
+  }
+
+  .footer-info p {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 480px) {
+  .join-room-card {
+    padding: 15px 10px;
+  }
+
+  .join-room-card h1 {
+    font-size: 20px;
+  }
+
+  .rooms-selection h2 {
+    font-size: 18px;
+  }
+
+  .room-item-header h3 {
+    font-size: 16px;
+  }
+
+  .badge {
+    font-size: 10px;
+    padding: 3px 8px;
   }
 }

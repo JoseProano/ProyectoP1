@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { getMessages, uploadFile, downloadFile } from '../services/api';
-import { encryptMessage, decryptMessage } from '../services/crypto';
+import { encryptMessage, decryptMessage, clearRoomKey } from '../services/crypto';
 import socketService from '../services/socket';
 import './ChatRoom.css';
 
@@ -27,7 +27,7 @@ function ChatRoom() {
       if (data.messages && data.messages.length > 0) {
         const decryptedMessages = data.messages.map(msg => ({
           ...msg,
-          content: msg.encrypted_content ? decryptMessage(msg.encrypted_content) : msg.content,
+          content: msg.encrypted_content ? decryptMessage(msg.encrypted_content, rId) : msg.content,
           decrypted: true
         }));
         setMessages(decryptedMessages);
@@ -106,6 +106,8 @@ function ChatRoom() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       socketService.leaveRoom(sessionId, roomId, nickname);
       socketService.disconnect();
+      // 🔐 Limpiar clave E2E al salir de la sala
+      clearRoomKey(roomId);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, sessionId, nickname, navigate]);
@@ -119,8 +121,9 @@ function ChatRoom() {
   };
 
   const handleNewMessage = (data) => {
+    // 🔐 E2E: Desencriptar mensaje con clave de la sala
     const decryptedContent = data.encrypted_content 
-      ? decryptMessage(data.encrypted_content) 
+      ? decryptMessage(data.encrypted_content, roomId) 
       : data.content;
     
     setMessages(prev => [...prev, {
@@ -142,13 +145,15 @@ function ChatRoom() {
     e.preventDefault();
     if (!inputMessage.trim()) return;
 
-    const encrypted = encryptMessage(inputMessage);
+    // 🔐 E2E: Encriptar mensaje ANTES de enviarlo al servidor
+    // El servidor NUNCA ve el contenido en texto plano
+    const encrypted = encryptMessage(inputMessage, roomId);
     socketService.sendMessage({
       room_id: roomId,
       session_id: sessionId,
-      nickname: myNickname,  // Agregar nickname
+      nickname: myNickname,
       encrypted_content: encrypted,
-      content: inputMessage  // Texto plano para fallback
+      content: '[Encrypted]'  // El servidor solo ve esto
     });
 
     setInputMessage('');

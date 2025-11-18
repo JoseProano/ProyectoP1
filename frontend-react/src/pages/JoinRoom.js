@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getPublicRooms, joinRoom } from '../services/api';
+import { generateRoomKey } from '../services/crypto';
 import './JoinRoom.css';
 
 function JoinRoom() {
@@ -51,6 +52,11 @@ function JoinRoom() {
     try {
       // Usar selectedRoom.id (no room_id)
       const response = await joinRoom(selectedRoom.id, nickname, pin || undefined);
+      
+      // 🔐 GENERAR CLAVE E2E: Derivar clave única de room_id + PIN
+      // Esta clave NUNCA se envía al servidor, solo existe en el cliente
+      generateRoomKey(response.room_id, pin);
+      console.log('🔐 E2E encryption key generated for room');
       
       // Redirigir al chat con los parámetros de sesión
       navigate(`/chat?room_id=${encodeURIComponent(response.room_id)}&session_id=${encodeURIComponent(response.session_id)}&nickname=${encodeURIComponent(nickname)}`);

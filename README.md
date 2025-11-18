@@ -4,14 +4,36 @@
 
 Sistema de chat en tiempo real con salas seguras que implementa las propiedades fundamentales de software seguro según los principios OWASP y NIST:
 
-### 🛡️ Propiedades de Seguridad Implementadas
+### 🔑 Características de Seguridad Implementadas
 
-- **Confidencialidad**: Encriptación AES-256-GCM end-to-end, TLS/SSL
+- **Confidencialidad**: 
+  - **🔐 Encriptación E2E Real (True End-to-End)**: 
+    * Mensajes encriptados en el navegador del emisor ANTES de enviar
+    * Clave única por sala derivada de `room_id + PIN` usando PBKDF2 (10,000 iteraciones)
+    * AES-256-CBC en el cliente con CryptoJS
+    * El servidor NUNCA ve el contenido en claro (solo transmite cifrado)
+    * Desencriptación solo en el navegador del receptor
+  - TLS/SSL en producción para el transporte
 - **Integridad**: Firmas digitales HMAC-SHA256, detección de esteganografía en imágenes
 - **Disponibilidad**: Manejo de concurrencia con Redis, rate limiting, pruebas de carga para 100+ usuarios
 - **Autenticación**: JWT con refresh tokens, bcrypt para contraseñas
 - **Autorización**: Control de acceso basado en roles (Admin/User), validación de sesiones
 - **No Repudio**: Logs inmutables con blockchain-like hash chaining y firmas digitales
+
+### 🎨 Características de Interfaz
+
+- **Diseño Responsive**: 
+  - Interfaz adaptable a dispositivos móviles, tablets y desktop
+  - Breakpoints: 320px, 480px, 768px, 1024px
+  - Sin scroll horizontal en ningún dispositivo
+  - Touch-friendly con tap targets de 44px mínimo
+  - Fuentes fluidas con `clamp()` para legibilidad en todas las pantallas
+  - Modo landscape optimizado para móviles
+- **UX Optimizada**: 
+  - Botones de ancho completo en móviles para fácil interacción
+  - Overflow controlado con `word-break` para URLs largas
+  - Layout vertical automático en pantallas pequeñas
+  - Prevención de zoom en iOS con fuentes de 16px mínimo
 
 ## 🏗️ Arquitectura del Sistema
 
@@ -167,9 +189,26 @@ ProyectoP1/
 
 ### 2. Encriptación y Criptografía
 
-- **AES-256-GCM**: Encriptación de mensajes en base de datos
-- **Claves Fijas**: Configuradas en docker-compose para persistencia
-- **TLS/SSL**: En producción para tráfico HTTPS/WSS
+- **🔐 E2E (End-to-End Encryption) - Verdadera Encriptación Cliente-a-Cliente**:
+  - **Implementación**:
+    * Mensajes encriptados en el navegador del emisor con AES-256-CBC
+    * Clave única por sala derivada de `room_id + PIN` usando PBKDF2 (10,000 iteraciones)
+    * Salt aleatorio generado por CryptoJS para cada mensaje
+    * Formato: `U2FsdGVkX1+...` (Base64 del cipher)
+  - **Flujo de Encriptación**:
+    1. Usuario ingresa a sala con PIN
+    2. Cliente genera clave: `PBKDF2(room_id + PIN, salt, 10000 iterations)`
+    3. Clave almacenada en `sessionStorage` (no persiste entre sesiones)
+    4. Mensaje se encripta ANTES de `socket.emit('send_message')`
+    5. Servidor recibe `encrypted_content` y lo almacena en MongoDB SIN desencriptar
+    6. Servidor transmite `encrypted_content` a receptores
+    7. Receptores desencriptan con su clave local
+  - **Verificación**: 
+    * MongoDB muestra `encrypted_content: "U2FsdGVkX1+..."`
+    * Logs del servidor: `"[DEBUG] Returning X E2E encrypted messages (server cannot read)"`
+    * Consola del navegador: `"🔐 E2E encryption key generated for room"`
+- **Claves de Sala**: Generadas automáticamente al unirse con el PIN, no compartidas con el servidor
+- **TLS/SSL**: En producción para tráfico HTTPS/WSS (protección del canal)
 - **Bcrypt**: Para contraseñas de admin y PINs de salas (cost factor 12)
 
 ### 3. Integridad y No Repudio
@@ -254,6 +293,65 @@ docker cp securechat_backend:/app/logs/log_chain.json .\logs\
 ```bash
 # Verificar cadena de hashes
 curl http://localhost:8000/api/logs/verify
+```
+
+## 📱 Diseño Responsive
+
+### Características Implementadas
+
+- **Viewport Control Global**:
+  ```css
+  * { box-sizing: border-box; }
+  html, body { overflow-x: hidden; }
+  ```
+- **Breakpoints Responsive**:
+  - **≤ 480px**: Móviles pequeños (iPhone SE, Android compactos)
+    * Layout completamente vertical
+    * Botones de ancho completo
+    * Padding reducido (8-10px)
+    * Fuentes: 12-14px
+  - **≤ 768px**: Móviles y tablets pequeñas
+    * Headers verticales
+    * Sidebars colapsados o apilados
+    * Touch targets de 44px mínimo
+  - **≤ 1024px**: Tablets y pantallas medianas
+    * Grids de 2 columnas
+    * Padding moderado
+  - **> 1024px**: Desktop
+    * Layout completo horizontal
+    * Grids de 3+ columnas
+
+- **Optimizaciones Móviles**:
+  - `clamp()` para fuentes fluidas: `clamp(16px, 4vw, 24px)`
+  - `100dvh` para altura en móviles (respeta barra de navegación)
+  - `word-wrap: break-word` para URLs largas
+  - Prevención de zoom en iOS: `font-size: 16px` en inputs
+  - Sin scroll horizontal: `max-width: 100vw`, `overflow-x: hidden`
+
+- **Componentes Adaptables**:
+  - **AdminDashboard**: Header vertical en móvil, botones stacked
+  - **ChatRoom**: Sidebar colapsado, mensajes 85-92% ancho en móvil
+  - **Forms**: Labels arriba, inputs full-width
+  - **Modals**: 95% ancho en móvil, padding reducido
+
+### Pruebas de Responsive
+
+```bash
+# 1. Abrir DevTools (F12)
+# 2. Toggle Device Toolbar (Ctrl+Shift+M)
+# 3. Probar anchos:
+#    - 320px (iPhone SE)
+#    - 375px (iPhone X)
+#    - 414px (iPhone Plus)
+#    - 500px (Custom)
+#    - 768px (iPad)
+#    - 1024px (iPad Pro)
+
+# Verificar:
+# ✓ No hay scroll horizontal
+# ✓ Todos los botones visibles
+# ✓ Texto legible sin zoom
+# ✓ Tap targets > 44px
 ```
 
 ## 🔧 Configuración

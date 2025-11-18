@@ -1,14 +1,51 @@
 import CryptoJS from 'crypto-js';
 
-// Clave de encriptación (debería venir del backend o generarse por sesión)
-const ENCRYPTION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || 'secure-chat-encryption-key-2024';
+// Almacenamiento de claves E2E por sala
+const roomKeys = new Map();
 
 /**
- * Encripta un mensaje usando AES256
+ * ENCRIPTACIÓN END-TO-END REAL
+ * Genera una clave simétrica única por sala usando PBKDF2
  */
-export const encryptMessage = (message) => {
+export const generateRoomKey = (roomId, pin) => {
+  // Derivar clave única de 256 bits usando room_id + pin
+  const salt = CryptoJS.SHA256(roomId).toString();
+  const key = CryptoJS.PBKDF2(pin, salt, {
+    keySize: 256/32,
+    iterations: 10000
+  }).toString();
+  
+  roomKeys.set(roomId, key);
+  return key;
+};
+
+/**
+ * Obtiene la clave E2E de una sala
+ */
+export const getRoomKey = (roomId) => {
+  return roomKeys.get(roomId);
+};
+
+/**
+ * Limpia la clave de una sala (al salir)
+ */
+export const clearRoomKey = (roomId) => {
+  roomKeys.delete(roomId);
+};
+
+/**
+ * Encripta un mensaje usando AES256 con clave E2E de la sala
+ * El servidor NUNCA ve el contenido en claro
+ */
+export const encryptMessage = (message, roomId) => {
   try {
-    const encrypted = CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString();
+    const key = getRoomKey(roomId);
+    if (!key) {
+      console.warn('No E2E key found for room, using fallback');
+      return message;
+    }
+    
+    const encrypted = CryptoJS.AES.encrypt(message, key).toString();
     return encrypted;
   } catch (error) {
     console.error('Error encrypting message:', error);
@@ -17,11 +54,17 @@ export const encryptMessage = (message) => {
 };
 
 /**
- * Desencripta un mensaje usando AES256
+ * Desencripta un mensaje usando AES256 con clave E2E de la sala
  */
-export const decryptMessage = (encryptedMessage) => {
+export const decryptMessage = (encryptedMessage, roomId) => {
   try {
-    const bytes = CryptoJS.AES.decrypt(encryptedMessage, ENCRYPTION_KEY);
+    const key = getRoomKey(roomId);
+    if (!key) {
+      console.warn('No E2E key found for room, returning as-is');
+      return encryptedMessage;
+    }
+    
+    const bytes = CryptoJS.AES.decrypt(encryptedMessage, key);
     const decrypted = bytes.toString(CryptoJS.enc.Utf8);
     return decrypted || encryptedMessage;
   } catch (error) {

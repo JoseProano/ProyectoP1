@@ -94,15 +94,92 @@ Usuario/Admin
 ```
 
 ### 3. Capa de Encriptación
+
+#### 🔐 Encriptación End-to-End (E2E) - Cliente a Cliente
+```
+Cliente Emisor (Navegador)
+    │
+    ▼
+┌────────────────────────────┐
+│  Usuario escribe mensaje   │
+└──────────┬─────────────────┘
+           │
+           ▼
+┌────────────────────────────┐
+│  Generar clave de sala     │
+│  PBKDF2(room_id + PIN)     │
+│  10,000 iteraciones        │
+└──────────┬─────────────────┘
+           │
+           ▼
+┌────────────────────────────┐
+│  Encriptar con AES-256-CBC │
+│  CryptoJS.AES.encrypt()    │
+│  Salt aleatorio por mensaje│
+└──────────┬─────────────────┘
+           │
+           ▼
+┌────────────────────────────┐
+│  Resultado: U2FsdGVkX1+... │
+│  (Base64 del ciphertext)   │
+└──────────┬─────────────────┘
+           │
+           ▼
+    WebSocket emit
+  encrypted_content only
+           │
+           ▼
+┌────────────────────────────┐
+│  SERVIDOR (Backend)        │
+│  - NO desencripta          │
+│  - Almacena cipher en DB   │
+│  - Transmite cipher        │
+└──────────┬─────────────────┘
+           │
+           ▼
+    WebSocket broadcast
+  encrypted_content only
+           │
+           ▼
+Cliente Receptor (Navegador)
+    │
+    ▼
+┌────────────────────────────┐
+│  Recuperar clave de sala   │
+│  desde sessionStorage      │
+└──────────┬─────────────────┘
+           │
+           ▼
+┌────────────────────────────┐
+│  Desencriptar AES-256-CBC  │
+│  CryptoJS.AES.decrypt()    │
+└──────────┬─────────────────┘
+           │
+           ▼
+┌────────────────────────────┐
+│  Mostrar mensaje en claro  │
+└────────────────────────────┘
+```
+
+**Características de la E2E:**
+- ✅ Clave derivada de `room_id + PIN` (conocida solo por usuarios con PIN)
+- ✅ Servidor NUNCA ve el contenido en claro
+- ✅ Resistente a compromiso del servidor (forward secrecy parcial)
+- ✅ 10,000 iteraciones PBKDF2 (dificulta ataques de diccionario)
+- ✅ Salt aleatorio por mensaje (evita patrones repetidos)
+- ⚠️ Sin Perfect Forward Secrecy completo (usa PIN estático)
+- ⚠️ Vulnerable si el PIN es débil (4-8 dígitos)
+
+#### Otras Capas de Encriptación
 ```
 Datos en Reposo:
-├── AES-256-GCM (mensajes)
-├── bcrypt (contraseñas, PINs)
+├── AES-256-CBC (mensajes E2E en MongoDB - servidor no puede leer)
+├── bcrypt (contraseñas, PINs - cost factor 12)
 └── SHA-256 (hashes de archivos)
 
 Datos en Tránsito:
-├── TLS 1.3
-└── End-to-End Encryption (mensajes)
+├── TLS 1.3 (canal de transporte)
+└── E2E Encryption (contenido de mensajes - adicional al TLS)
 ```
 
 ### 4. Capa de Integridad
@@ -264,12 +341,16 @@ async def send_message(sid, data):
   "_id": ObjectId,
   "room_id": String (indexed),
   "user_id": String,
-  "content": String (encrypted),
-  "encrypted": Boolean,
+  "nickname": String,
+  "content": String (deprecated - siempre "[Encrypted]"),
+  "encrypted_content": String (E2E cipher - servidor NO puede leer),
+  "encrypted": Boolean (siempre true para E2E),
   "timestamp": DateTime (indexed),
-  "signature": String (HMAC)
+  "signature": String (HMAC del encrypted_content)
 }
 ```
+
+**Nota sobre E2E**: El campo `encrypted_content` contiene el resultado de `CryptoJS.AES.encrypt()` en formato Base64 (ej: `"U2FsdGVkX1+..."`). El servidor almacena este valor SIN desencriptarlo y lo transmite tal cual a los receptores. Solo los clientes con el PIN correcto pueden derivar la clave PBKDF2 y desencriptar el contenido.
 
 #### files
 ```javascript
@@ -411,9 +492,116 @@ rate:{ip_address} → Counter (TTL: 60s)
 | Testing | pytest | 7.4+ |
 | Container | Docker | 24+ |
 
+## 📱 Arquitectura Responsive
+
+### Sistema de Breakpoints
+```
+┌─────────────────────────────────────────────────────────┐
+│  Desktop (> 1024px)                                     │
+│  ┌──────────┬──────────┬──────────┐                    │
+│  │  Header  │  Header  │  Header  │                    │
+│  ├──────────┴──────────┴──────────┤                    │
+│  │  Sidebar │      Main Content   │                    │
+│  │          │                      │                    │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  Tablet (768px - 1024px)                                │
+│  ┌──────────────────────────────────┐                  │
+│  │          Header                  │                  │
+│  ├────────────┬─────────────────────┤                  │
+│  │  Sidebar   │   Main Content      │                  │
+│  │ (colapsado)│                      │                  │
+└─────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────┐
+│  Mobile (< 768px)            │
+│  ┌──────────────────────────┐│
+│  │       Header             ││
+│  ├──────────────────────────┤│
+│  │       Sidebar            ││
+│  │      (stacked)           ││
+│  ├──────────────────────────┤│
+│  │                          ││
+│  │     Main Content         ││
+│  │      (full-width)        ││
+│  │                          ││
+│  └──────────────────────────┘│
+└──────────────────────────────┘
+```
+
+### CSS Global (App.css)
+```css
+* {
+  box-sizing: border-box;  /* Incluye padding/border en width */
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  overflow-x: hidden;      /* Previene scroll horizontal */
+  -webkit-overflow-scrolling: touch;  /* Smooth scroll iOS */
+}
+```
+
+### Técnicas Responsive Usadas
+
+1. **Viewport Units Dinámicos**:
+   ```css
+   height: 100dvh;  /* Respeta barra de navegación móvil */
+   max-width: 100vw;
+   ```
+
+2. **Fuentes Fluidas con clamp()**:
+   ```css
+   font-size: clamp(16px, 4vw, 24px);
+   /* Mínimo 16px, ideal 4% viewport, máximo 24px */
+   ```
+
+3. **Flexbox Responsive**:
+   ```css
+   .header {
+     display: flex;
+     flex-direction: row;  /* Desktop */
+   }
+   @media (max-width: 768px) {
+     .header {
+       flex-direction: column;  /* Mobile */
+     }
+   }
+   ```
+
+4. **Grid Adaptable**:
+   ```css
+   .rooms-grid {
+     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+     /* Auto-ajusta según espacio disponible */
+   }
+   ```
+
+5. **Touch Targets**:
+   ```css
+   button {
+     min-height: 44px;  /* Recomendación WCAG para touch */
+     min-width: 44px;
+   }
+   ```
+
+### Componentes con Responsive
+
+| Componente | Desktop | Tablet | Mobile |
+|------------|---------|--------|--------|
+| **Header** | Horizontal, 2 secciones | Horizontal, wrapped | Vertical, stacked |
+| **Sidebar** | 250px fijo | 200px colapsable | Full-width, max-height 200px |
+| **Mensajes** | 70% ancho | 80% ancho | 85-92% ancho |
+| **Botones** | Auto-size | Auto-size | Full-width |
+| **Formularios** | 2 columnas | 2 columnas | 1 columna |
+| **Modals** | 500px max | 90% ancho | 95% ancho |
+
 ## 📝 Notas de Implementación
 
-1. **Rate Limiting**: 30 requests/minuto por IP
+1. **Rate Limiting**: 30 requests/minuto por IP (HTTP), 30 mensajes/minuto (WebSocket)
 2. **File Size**: Máximo 10MB configurable
 3. **Session Timeout**: 1 hora de inactividad
 4. **Token Expiry**: Access 30 min, Refresh 7 días
@@ -421,6 +609,8 @@ rate:{ip_address} → Counter (TTL: 60s)
 6. **Backup Strategy**: MongoDB dump diario + logs semanales
 7. **Monitoring**: Agregar Prometheus + Grafana (futuro)
 8. **CI/CD**: GitHub Actions para tests automáticos (futuro)
+9. **E2E Encryption**: PBKDF2 con 10,000 iteraciones, AES-256-CBC
+10. **Responsive**: Breakpoints 480px, 768px, 1024px con overflow control
 
 ---
 
