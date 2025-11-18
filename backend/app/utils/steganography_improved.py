@@ -160,30 +160,54 @@ class ImprovedSteganographyDetector:
             size_ratio = actual_size / expected_size if expected_size > 0 else 0
             
             # Para JPEG, ratio normal es 0.05-0.2 (compresión 5:1 a 20:1)
-            # Si ratio > 0.3, puede tener datos ocultos
+            # Para PNG, ratio normal es 0.1-0.4 (compresión depende de contenido)
+            # Si ratio > 0.3 para JPEG o > 0.6 para PNG, puede tener datos ocultos
             is_jpeg = 'jpeg' in mime_type.lower() or 'jpg' in mime_type.lower()
-            suspicious_size = is_jpeg and size_ratio > 0.3
+            is_png = 'png' in mime_type.lower()
+            suspicious_size = (is_jpeg and size_ratio > 0.3) or (is_png and size_ratio > 0.6)
             
             # === DECISIÓN FINAL ===
-            # Alta prioridad: archivos embebidos (copy /b)
+            # CRÍTICO: archivos embebidos (copy /b) - PRIORIDAD MÁXIMA
             if has_embedded:
                 is_suspicious = True
                 threat_level = 'critical'
                 reason = f"Archivos embebidos detectados: {', '.join([e['type'] for e in embedded_files])}"
-            # Media prioridad: LSB sospechoso + entropía alta en cola
-            elif lsb_suspicious and tail_entropy > 7.9:
+            # ALTO: LSB sospechoso + entropía extrema
+            elif lsb_suspicious and tail_entropy > 7.95:
                 is_suspicious = True
                 threat_level = 'high'
-                reason = "Patrón LSB sospechoso con alta entropía"
-            # Baja prioridad: tamaño sospechoso + entropía general alta
-            elif suspicious_size and file_entropy > 7.9:
-                is_suspicious = True
-                threat_level = 'medium'
-                reason = "Tamaño inusual con alta entropía"
+                reason = "Patrón LSB sospechoso con entropía extrema"
+            # MEDIO: Solo marcar como sospechoso si tiene múltiples indicadores
+            # Esto reduce drásticamente falsos positivos
             else:
-                is_suspicious = False
-                threat_level = 'low'
-                reason = "Imagen normal"
+                suspicious_indicators = 0
+                reasons_list = []
+                
+                # Indicador 1: Entropía extremadamente alta y uniforme
+                if file_entropy > 7.985 and tail_entropy > 7.985:
+                    suspicious_indicators += 1
+                    reasons_list.append(f"entropía extrema ({file_entropy:.4f})")
+                
+                # Indicador 2: Tamaño muy anómalo para el tipo
+                if suspicious_size:
+                    suspicious_indicators += 1
+                    reasons_list.append(f"ratio de tamaño anómalo ({size_ratio:.2f})")
+                
+                # Indicador 3: Diferencia casi nula entre entropía general y cola
+                # (indica datos muy uniformemente distribuidos, típico de cifrado/esteganografía)
+                if file_entropy > 7.9 and tail_entropy > 7.9 and abs(file_entropy - tail_entropy) < 0.005:
+                    suspicious_indicators += 1
+                    reasons_list.append("entropía extremadamente uniforme")
+                
+                # Requiere AL MENOS 2 indicadores para marcar como sospechoso
+                if suspicious_indicators >= 2:
+                    is_suspicious = True
+                    threat_level = 'medium'
+                    reason = "Múltiples indicadores sospechosos: " + ", ".join(reasons_list)
+                else:
+                    is_suspicious = False
+                    threat_level = 'low'
+                    reason = "Imagen normal"
             
             return {
                 'filename': filename,
