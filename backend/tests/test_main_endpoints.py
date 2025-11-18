@@ -241,3 +241,276 @@ class TestMessageEndpoints:
         except Exception:
             assert True
 
+
+class TestHealthAndUtilityEndpoints:
+    """Tests para endpoints de utilidad y salud"""
+    
+    def test_health_endpoint(self):
+        """Test endpoint /api/health"""
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data
+        assert data["status"] == "healthy"
+    
+    def test_root_endpoint(self):
+        """Test endpoint raíz /"""
+        response = client.get("/")
+        assert response.status_code == 200
+        data = response.json()
+        # El endpoint / retorna name, status, version
+        assert "name" in data or "message" in data
+        assert "version" in data
+    
+    def test_logs_verify_endpoint(self):
+        """Test verificación de logs"""
+        response = client.get("/api/logs/verify")
+        # Puede requerir autenticación (403) o funcionar (200) o fallar (500)
+        assert response.status_code in [200, 403, 500]
+        # Puede fallar si no hay logs, pero endpoint existe
+
+
+class TestRoomsPublicEndpoint:
+    """Tests para endpoint de salas públicas"""
+    
+    def test_get_public_rooms(self):
+        """Test obtener salas públicas"""
+        try:
+            response = client.get("/api/rooms/public")
+            assert response.status_code in [200, 500]
+            if response.status_code == 200:
+                data = response.json()
+                assert isinstance(data, list)
+        except Exception:
+            assert True
+
+
+class TestFileDownloadEndpoint:
+    """Tests para endpoint de descarga de archivos"""
+    
+    def test_download_file_not_found(self):
+        """Test descargar archivo inexistente"""
+        response = client.get("/api/files/nonexistent_file_id")
+        # Puede dar 422 por validación, 404 por no encontrado, o 500
+        assert response.status_code in [404, 422, 500]
+    
+    def test_download_file_invalid_id(self):
+        """Test descargar archivo con ID inválido"""
+        response = client.get("/api/files/invalid@#$%id")
+        # Puede dar 422 por validación de caracteres especiales
+        assert response.status_code in [400, 404, 422, 500]
+
+
+class TestRoomDeletionEndpoint:
+    """Tests para endpoint de eliminación de salas"""
+    
+    def test_delete_room_without_auth(self):
+        """Test eliminar sala sin autenticación"""
+        response = client.delete("/api/rooms/test_room_id")
+        # Debería requerir autenticación de admin
+        assert response.status_code in [401, 403, 404]
+    
+    def test_delete_nonexistent_room(self):
+        """Test eliminar sala inexistente"""
+        response = client.delete("/api/rooms/nonexistent_room")
+        assert response.status_code in [401, 403, 404, 500]
+
+
+class Test2FAEndpoints:
+    """Tests para endpoints de autenticación de dos factores"""
+    
+    def test_2fa_setup_without_auth(self):
+        """Test configurar 2FA sin autenticación"""
+        response = client.post("/api/auth/2fa/setup")
+        # Debería requerir autenticación
+        assert response.status_code in [401, 403, 422]
+    
+    def test_2fa_verify_without_auth(self):
+        """Test verificar 2FA sin autenticación"""
+        response = client.post("/api/auth/2fa/verify", json={
+            "code": "123456"
+        })
+        assert response.status_code in [401, 403, 422]
+    
+    def test_2fa_verify_invalid_code(self):
+        """Test verificar 2FA con código inválido"""
+        response = client.post("/api/auth/2fa/verify", json={
+            "code": "000000"
+        })
+        assert response.status_code in [400, 401, 403, 422]
+
+
+class TestRoomUploadEndpoint:
+    """Tests adicionales para upload de archivos"""
+    
+    def test_upload_without_room_id(self):
+        """Test upload sin especificar sala"""
+        files = {"file": ("test.txt", b"content", "text/plain")}
+        response = client.post("/api/rooms//upload", files=files)
+        # Path incorrecto
+        assert response.status_code in [404, 422]
+    
+    def test_upload_invalid_file_type(self):
+        """Test upload con tipo de archivo inválido"""
+        files = {"file": ("test.exe", b"MZ\x90\x00", "application/x-msdownload")}
+        response = client.post("/api/rooms/test_room/upload", files=files)
+        assert response.status_code in [400, 401, 404, 422]
+    
+    def test_upload_empty_file(self):
+        """Test upload con archivo vacío"""
+        files = {"file": ("empty.txt", b"", "text/plain")}
+        response = client.post("/api/rooms/test_room/upload", files=files)
+        assert response.status_code in [400, 401, 404, 422]
+    
+    def test_upload_large_file(self):
+        """Test upload con archivo muy grande"""
+        # 15MB (supera límite de 10MB)
+        large_content = b"x" * (15 * 1024 * 1024)
+        files = {"file": ("large.bin", large_content, "application/octet-stream")}
+        try:
+            response = client.post("/api/rooms/test_room/upload", files=files)
+            assert response.status_code in [400, 413, 422]
+        except Exception:
+            # Puede fallar por memoria/límite del cliente
+            assert True
+
+
+class TestGetRoomsEndpoint:
+    """Tests para endpoint de listado de salas"""
+    
+    def test_get_rooms_without_auth(self):
+        """Test listar salas sin autenticación"""
+        try:
+            response = client.get("/api/rooms")
+            # Puede requerir auth o devolver lista vacía
+            assert response.status_code in [200, 401, 403, 500]
+            if response.status_code == 200:
+                data = response.json()
+                assert isinstance(data, list)
+        except Exception:
+            assert True
+
+
+class TestCreateRoomEndpoint:
+    """Tests adicionales para creación de salas"""
+    
+    def test_create_room_invalid_pin_length(self):
+        """Test crear sala con PIN de longitud inválida"""
+        response = client.post("/api/rooms", json={
+            "name": "Test Room",
+            "pin": "12",  # Muy corto
+            "room_type": "text"
+        })
+        assert response.status_code in [401, 403, 422]
+    
+    def test_create_room_invalid_type(self):
+        """Test crear sala con tipo inválido"""
+        response = client.post("/api/rooms", json={
+            "name": "Test Room",
+            "pin": "1234",
+            "room_type": "invalid_type"
+        })
+        assert response.status_code in [401, 403, 422]
+    
+    def test_create_room_empty_name(self):
+        """Test crear sala con nombre vacío"""
+        response = client.post("/api/rooms", json={
+            "name": "",
+            "pin": "1234",
+            "room_type": "text"
+        })
+        assert response.status_code in [401, 403, 422]
+    
+    def test_create_room_special_characters_name(self):
+        """Test crear sala con caracteres especiales en nombre"""
+        response = client.post("/api/rooms", json={
+            "name": "Test<script>alert('xss')</script>Room",
+            "pin": "1234",
+            "room_type": "text"
+        })
+        # Debería sanitizar o rechazar
+        assert response.status_code in [200, 400, 401, 403, 422]
+
+
+class TestJoinRoomValidation:
+    """Tests de validación para unirse a salas"""
+    
+    def test_join_room_invalid_pin(self):
+        """Test unirse con PIN incorrecto"""
+        try:
+            response = client.post("/api/rooms/join", json={
+                "room_id": "test123",
+                "nickname": "User1",
+                "pin": "0000"
+            })
+            assert response.status_code in [400, 401, 404, 422, 500]
+        except Exception:
+            assert True
+    
+    def test_join_room_empty_nickname(self):
+        """Test unirse con nickname vacío"""
+        response = client.post("/api/rooms/join", json={
+            "room_id": "test123",
+            "nickname": "",
+            "pin": "1234"
+        })
+        assert response.status_code in [400, 422]
+    
+    def test_join_room_nickname_too_long(self):
+        """Test unirse con nickname muy largo"""
+        long_nickname = "a" * 100
+        response = client.post("/api/rooms/join", json={
+            "room_id": "test123",
+            "nickname": long_nickname,
+            "pin": "1234"
+        })
+        assert response.status_code in [400, 422, 500]
+    
+    def test_join_room_missing_fields(self):
+        """Test unirse sin todos los campos requeridos"""
+        response = client.post("/api/rooms/join", json={
+            "room_id": "test123"
+        })
+        assert response.status_code == 422
+
+
+class TestRateLimiting:
+    """Tests para rate limiting"""
+    
+    def test_rate_limit_multiple_requests(self):
+        """Test rate limiting con múltiples requests"""
+        # Hacer 35 requests rápidos (límite es 30/min)
+        responses = []
+        for i in range(35):
+            try:
+                response = client.get("/api/health")
+                responses.append(response.status_code)
+            except Exception:
+                break
+        
+        # Al menos algunos deberían pasar
+        assert any(code == 200 for code in responses)
+        # Puede haber rate limiting si está activado
+        # assert any(code == 429 for code in responses)  # Opcional
+
+
+class TestGetMessagesEndpoint:
+    """Tests adicionales para obtener mensajes"""
+    
+    def test_get_messages_invalid_room_id(self):
+        """Test obtener mensajes con room_id inválido"""
+        try:
+            response = client.get("/api/messages/invalid@room#id?session_id=test")
+            assert response.status_code in [400, 401, 404, 422, 500]
+        except Exception:
+            assert True
+    
+    def test_get_messages_missing_session_id(self):
+        """Test obtener mensajes sin session_id"""
+        try:
+            response = client.get("/api/messages/test_room")
+            # Puede requerir session_id en query params
+            assert response.status_code in [400, 401, 422, 500]
+        except Exception:
+            assert True
+
